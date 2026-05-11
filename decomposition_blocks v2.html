@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Number Blocks — Addition Explorer</title>
+<style>
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f5f4f0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1rem;
+  }
+  h1 {
+    font-size: 1.3rem;
+    font-weight: 500;
+    color: #2c2c2a;
+    margin: 0.5rem 0 0.25rem;
+    text-align: center;
+  }
+  #equation-bar {
+    text-align: center;
+    font-size: 1.7rem;
+    font-weight: 500;
+    color: #2c2c2a;
+    min-height: 2.5rem;
+    margin-bottom: 0.35rem;
+    line-height: 1.4;
+    width: 100%;
+    max-width: 640px;
+  }
+  #hint-bar {
+    text-align: center;
+    font-size: 13px;
+    color: #888780;
+    margin-bottom: 0.5rem;
+    min-height: 1.3rem;
+    width: 100%;
+    max-width: 640px;
+  }
+  #canvas {
+    position: relative;
+    width: 100%;
+    max-width: 640px;
+    height: 400px;
+    border-radius: 16px;
+    border: 2px dashed #d3d1c7;
+    background: #ffffff;
+    overflow: hidden;
+    touch-action: none;
+  }
+  .group-el {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: grab;
+  }
+  .group-el:active { cursor: grabbing; }
+  .group-el.snapping { transition: left 0.22s, top 0.22s; }
+  .block-row {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    max-width: 200px;
+    justify-content: center;
+  }
+  .blk {
+    width: 42px; height: 42px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 500;
+    border: 2px solid transparent;
+    transition: transform 0.12s;
+    cursor: pointer;
+  }
+  .blk:hover { transform: scale(1.13); }
+  .blk.pop { animation: blkpop 0.2s; }
+  @keyframes blkpop { 0%{transform:scale(1)} 50%{transform:scale(1.35)} 100%{transform:scale(1)} }
+  .blk.shrink { animation: blkshrink 0.18s; }
+  @keyframes blkshrink { 0%{transform:scale(1)} 50%{transform:scale(0.6)} 100%{transform:scale(1)} }
+  .group-count {
+    font-size: 1.2rem; font-weight: 500;
+    padding: 2px 14px; border-radius: 20px; margin-top: 2px;
+  }
+  #controls-row {
+    display: flex; align-items: center; justify-content: center;
+    gap: 14px; margin-top: 0.65rem;
+    width: 100%; max-width: 640px;
+  }
+  .ctrl-btn {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    border: 2px solid #7F77DD;
+    background: transparent;
+    color: #534AB7;
+    font-size: 1.7rem; font-weight: 500;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
+    transition: background 0.15s, transform 0.1s;
+  }
+  .ctrl-btn:hover { background: #EEEDFE; transform: scale(1.08); }
+  .ctrl-btn:active { transform: scale(0.94); }
+  .ctrl-btn:disabled { opacity: 0.3; cursor: default; transform: none; }
+  #total-pill {
+    font-size: 1.15rem; font-weight: 500;
+    padding: 8px 22px; border-radius: 999px;
+    background: #EEEDFE; color: #3C3489;
+    min-width: 80px; text-align: center;
+  }
+  #reset-btn {
+    padding: 8px 20px;
+    font-size: 0.9rem; font-weight: 500;
+    border-radius: 999px;
+    border: 1.5px solid #d3d1c7;
+    background: transparent;
+    color: #5f5e5a;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+  #reset-btn:hover { background: #f1efe8; transform: scale(1.03); }
+  #snap-flash {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: #9FE1CB; color: #085041;
+    font-size: 13px; font-weight: 500;
+    padding: 5px 18px; border-radius: 20px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.3s;
+    white-space: nowrap;
+  }
+  @media (max-width: 480px) {
+    #canvas { height: 340px; }
+    .blk { width: 36px; height: 36px; font-size: 12px; }
+    #equation-bar { font-size: 1.35rem; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Number Blocks</h1>
+<div id="equation-bar">10</div>
+<div id="hint-bar">Tap a block to split it off! Drag groups close to snap them together!</div>
+
+<div id="canvas">
+  <div id="snap-flash">Snapped together!</div>
+</div>
+
+<div id="controls-row">
+  <button class="ctrl-btn" id="minus-btn" title="Remove a block">&#8722;</button>
+  <div id="total-pill">Total: 10</div>
+  <button class="ctrl-btn" id="plus-btn" title="Add a block">&#43;</button>
+  <button id="reset-btn">Reset</button>
+</div>
+
+<script>
+let audioCtx = null;
+function getAudio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playTone(opts) {
+  try {
+    const ctx = getAudio();
+    const { type = 'sine', freq = 440, freq2, duration = 0.12, vol = 0.08, attack = 0.005, decay = 0.08 } = opts;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    if (freq2) osc.frequency.exponentialRampToValueAtTime(freq2, ctx.currentTime + duration);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + attack + decay);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + duration + 0.05);
+  } catch(e) {}
+}
+
+function soundSplit()  { playTone({ freq: 520, freq2: 620, type: 'sine',    vol: 0.07, attack: 0.003, decay: 0.09, duration: 0.13 }); }
+function soundSnap()   { playTone({ freq: 320, freq2: 260, type: 'sine',    vol: 0.09, attack: 0.004, decay: 0.13, duration: 0.16 }); }
+function soundAdd()    { playTone({ freq: 480, freq2: 560, type: 'triangle', vol: 0.06, attack: 0.003, decay: 0.08, duration: 0.11 }); }
+function soundRemove() { playTone({ freq: 300, freq2: 240, type: 'triangle', vol: 0.06, attack: 0.003, decay: 0.08, duration: 0.11 }); }
+
+const PALETTE = [
+  { bg:'#CECBF6', border:'#AFA9EC', text:'#3C3489', label:'#EEEDFE', ltext:'#534AB7' },
+  { bg:'#9FE1CB', border:'#5DCAA5', text:'#085041', label:'#E1F5EE', ltext:'#0F6E56' },
+  { bg:'#F5C4B3', border:'#F0997B', text:'#712B13', label:'#FAECE7', ltext:'#993C1D' },
+  { bg:'#F4C0D1', border:'#ED93B1', text:'#72243E', label:'#FBEAF0', ltext:'#993556' },
+  { bg:'#FAC775', border:'#EF9F27', text:'#633806', label:'#FAEEDA', ltext:'#854F0B' },
+  { bg:'#B5D4F4', border:'#85B7EB', text:'#0C447C', label:'#E6F1FB', ltext:'#185FA5' },
+  { bg:'#C0DD97', border:'#97C459', text:'#27500A', label:'#EAF3DE', ltext:'#3B6D11' },
+];
+
+const SNAP_DIST = 80;
+const MAX_BLOCKS = 20;
+const canvas = document.getElementById('canvas');
+const eqBar = document.getElementById('equation-bar');
+const hintBar = document.getElementById('hint-bar');
+const snapFlash = document.getElementById('snap-flash');
+const plusBtn = document.getElementById('plus-btn');
+const minusBtn = document.getElementById('minus-btn');
+const totalPill = document.getElementById('total-pill');
+
+let groups = [];
+let colorIdx = 0;
+let dragState = null;
+let snapTimer = null;
+let addGroup = null;
+
+function nextColor() {
+  const c = PALETTE[colorIdx % PALETTE.length];
+  colorIdx++;
+  return c;
+}
+
+function totalBlocks() {
+  return groups.reduce((s, g) => s + g.count, 0);
+}
+
+function makeGroup(count, x, y, color) {
+  color = color || nextColor();
+  const el = document.createElement('div');
+  el.className = 'group-el';
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+
+  const row = document.createElement('div');
+  row.className = 'block-row';
+
+  const lbl = document.createElement('div');
+  lbl.className = 'group-count';
+  lbl.style.background = color.label;
+  lbl.style.color = color.ltext;
+
+  el.appendChild(row);
+  el.appendChild(lbl);
+  canvas.appendChild(el);
+
+  const g = { count, el, row, lbl, color, x, y };
+  groups.push(g);
+  renderGroup(g);
+
+  el.addEventListener('pointerdown', (e) => onGroupPointerDown(e, g));
+  row.addEventListener('click', (e) => onBlockClick(e, g));
+  return g;
+}
+
+function renderGroup(g) {
+  g.row.innerHTML = '';
+  for (let i = 0; i < g.count; i++) {
+    const b = document.createElement('div');
+    b.className = 'blk';
+    b.style.background = g.color.bg;
+    b.style.borderColor = g.color.border;
+    b.style.color = g.color.text;
+    b.textContent = '1';
+    g.row.appendChild(b);
+  }
+  g.lbl.textContent = g.count;
+}
+
+function setPos(g, x, y) {
+  g.x = x; g.y = y;
+  g.el.style.left = x + 'px';
+  g.el.style.top = y + 'px';
+}
+
+function removeGroup(g) {
+  g.el.remove();
+  groups = groups.filter(x => x !== g);
+  if (addGroup === g) addGroup = null;
+}
+
+function onBlockClick(e, g) {
+  if (dragState && dragState.moved) return;
+  if (g.count <= 1) return;
+  const blks = g.row.querySelectorAll('.blk');
+  const idx = Array.from(blks).indexOf(e.target);
+  if (idx < 0) return;
+  const splitAt = idx === 0 ? 1 : idx;
+  const newCount = g.count - splitAt;
+  g.count = splitAt;
+  renderGroup(g);
+
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  const offX = 55 + Math.random() * 25;
+  const offY = 55 + Math.random() * 25;
+  const nx = Math.min(Math.max(g.x + offX, 4), cw - 90);
+  const ny = Math.min(Math.max(g.y + offY, 4), ch - 80);
+  const ng = makeGroup(newCount, nx, ny);
+  addGroup = ng;
+
+  ng.row.querySelectorAll('.blk').forEach(b => {
+    b.classList.add('pop');
+    setTimeout(() => b.classList.remove('pop'), 220);
+  });
+
+  soundSplit();
+  updateEquation();
+  updateButtons();
+  hintBar.textContent = 'Nice! Drag groups close together to snap them back.';
+}
+
+function trySnap(movedG) {
+  for (const g of groups) {
+    if (g === movedG) continue;
+    const mc = { x: movedG.x + movedG.el.offsetWidth / 2, y: movedG.y + movedG.el.offsetHeight / 2 };
+    const gc = { x: g.x + g.el.offsetWidth / 2, y: g.y + g.el.offsetHeight / 2 };
+    if (Math.hypot(mc.x - gc.x, mc.y - gc.y) < SNAP_DIST) {
+      g.count += movedG.count;
+      renderGroup(g);
+      if (addGroup === movedG) addGroup = g;
+      removeGroup(movedG);
+      g.el.classList.add('snapping');
+      setTimeout(() => g.el && g.el.classList.remove('snapping'), 300);
+      showSnap();
+      soundSnap();
+      updateEquation();
+      updateButtons();
+      return true;
+    }
+  }
+  return false;
+}
+
+function showSnap() {
+  snapFlash.style.opacity = '1';
+  if (snapTimer) clearTimeout(snapTimer);
+  snapTimer = setTimeout(() => { snapFlash.style.opacity = '0'; }, 1200);
+}
+
+function onGroupPointerDown(e, g) {
+  if (e.target.classList.contains('blk')) return;
+  e.preventDefault();
+  const cr = canvas.getBoundingClientRect();
+  dragState = { g, ox: e.clientX - cr.left - g.x, oy: e.clientY - cr.top - g.y, moved: false };
+  g.el.style.zIndex = 100;
+}
+
+canvas.addEventListener('pointermove', (e) => {
+  if (!dragState) return;
+  const cr = canvas.getBoundingClientRect();
+  const nx = Math.max(0, Math.min(e.clientX - cr.left - dragState.ox, canvas.clientWidth - dragState.g.el.offsetWidth));
+  const ny = Math.max(0, Math.min(e.clientY - cr.top - dragState.oy, canvas.clientHeight - dragState.g.el.offsetHeight));
+  setPos(dragState.g, nx, ny);
+  dragState.moved = true;
+});
+
+canvas.addEventListener('pointerup', () => {
+  if (!dragState) return;
+  dragState.g.el.style.zIndex = '';
+  if (dragState.moved) trySnap(dragState.g);
+  dragState = null;
+});
+
+canvas.addEventListener('pointercancel', () => { dragState = null; });
+
+function updateEquation() {
+  const total = totalBlocks();
+  totalPill.textContent = 'Total: ' + total;
+  if (groups.length === 0) { eqBar.textContent = '0'; return; }
+  const sorted = [...groups].sort((a, b) => a.x - b.x);
+  const parts = sorted.map(g =>
+    `<span style="display:inline-block;padding:1px 10px;border-radius:8px;background:${g.color.label};color:${g.color.ltext};margin:0 1px;">${g.count}</span>`
+  );
+  eqBar.innerHTML = parts.join('<span style="padding:0 3px;color:#888780;">+</span>') +
+    `<span style="padding:0 4px;color:#888780;"> = </span><span>${total}</span>`;
+}
+
+function updateButtons() {
+  const total = totalBlocks();
+  plusBtn.disabled = total >= MAX_BLOCKS;
+  minusBtn.disabled = total <= 1;
+}
+
+plusBtn.addEventListener('click', () => {
+  const total = totalBlocks();
+  if (total >= MAX_BLOCKS) return;
+  if (addGroup && groups.includes(addGroup)) {
+    addGroup.count++;
+    renderGroup(addGroup);
+    const blks = addGroup.row.querySelectorAll('.blk');
+    const last = blks[blks.length - 1];
+    last.classList.add('pop');
+    setTimeout(() => last.classList.remove('pop'), 220);
+  } else {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    const x = Math.floor(cw * 0.6 + Math.random() * 40);
+    const y = Math.floor(ch * 0.35 + Math.random() * 40);
+    addGroup = makeGroup(1, Math.min(x, cw - 90), Math.min(y, ch - 80));
+    const b = addGroup.row.querySelector('.blk');
+    b.classList.add('pop');
+    setTimeout(() => b.classList.remove('pop'), 220);
+  }
+  soundAdd();
+  updateEquation();
+  updateButtons();
+  hintBar.textContent = 'Block added!';
+});
+
+minusBtn.addEventListener('click', () => {
+  if (groups.length === 0) return;
+  const largest = groups.reduce((a, b) => b.count > a.count ? b : a);
+  const blks = largest.row.querySelectorAll('.blk');
+  const last = blks[blks.length - 1];
+  last.classList.add('shrink');
+  setTimeout(() => {
+    largest.count--;
+    if (largest.count === 0) {
+      removeGroup(largest);
+    } else {
+      renderGroup(largest);
+    }
+    updateEquation();
+    updateButtons();
+  }, 160);
+  soundRemove();
+  hintBar.textContent = 'Block removed!';
+});
+
+function resetBlocks() {
+  groups.forEach(g => g.el.remove());
+  groups = []; colorIdx = 0; addGroup = null;
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  const g = makeGroup(10, Math.floor(cw / 2) - 100, Math.floor(ch / 2) - 50);
+  addGroup = g;
+  updateEquation();
+  updateButtons();
+  hintBar.textContent = 'Tap a block to split it off! Drag groups close to snap them together!';
+}
+
+document.getElementById('reset-btn').addEventListener('click', resetBlocks);
+window.addEventListener('load', resetBlocks);
+</script>
+</body>
+</html>
